@@ -35,8 +35,8 @@ dataCount = 0,
 head = 0,
 tail = 0;
 
-char on[1];
-char off[1];
+char on[256];
+char off[256];
 
 bool send_xoff = false,
 send_xon = true;
@@ -65,11 +65,14 @@ int main(int argc, char* argv[]) {
 
 void receiveDataFromClient(int port) {
 	setSocketConnection(port);
-
+	//sendto(socketConnection, on, 1, 0, (struct sockaddr *) &server, sizeof(server));			
+			
 	thread listener (listenToTransmitter);
 	consumeData();
 
 	listener.join();
+	
+	close(socketConnection);
 }
 
 void setSocketConnection(int port) {
@@ -79,14 +82,16 @@ void setSocketConnection(int port) {
 
 	server.sin_family = AF_INET;
 	server.sin_port = htons(port);
+	server.sin_addr.s_addr = INADDR_ANY;
 
-	inet_aton(localHost, &server.sin_addr);
+	// inet_aton(localHost, &server.sin_addr);
 	
 	if (bind(socketConnection, (const sockaddr *)&server, sizeof(server)) < 0) {
 		cout << "error binding to socket" << endl;
 	} else {
 		cout << "binding success" << endl; // test aja
 	}
+	
 }
 
 /*
@@ -114,20 +119,20 @@ void listenToTransmitter() {
 	char input[256];
 	struct sockaddr_storage fromAddr;
 	socklen_t fromAddrLen = sizeof(fromAddr);
+	
 	do {
-			cout << "listening" << endl; // test
-			recvfrom(socketConnection, input, 255, 0, (struct sockaddr *) &fromAddr, &fromAddrLen);
-			
+			recvfrom(socketConnection, input, 1, 0, (struct sockaddr *) &fromAddr, &fromAddrLen);
 			
 			if (head == QSIZE)
 				head = 0;	
 			else
 				head++;
+			
 			byteCount++;
-	
 			buffer[head] = input[0];
-	
-			cout << "Menerima byte ke-" << byteCount;
+			memset(input, 0, sizeof(input));
+			
+			cout << "Menerima byte ke-" << byteCount << ":" << "'" << buffer[head] << "'" << endl;			
 	
 			if ((abs(head-tail)) >= QSIZE) {
 				sendto(socketConnection, off, 1, 0, (struct sockaddr *) &server, sizeof(server));
@@ -143,7 +148,7 @@ void consumeData() {
 			tail++;
 			if ((buffer[tail] > 32) || (buffer[tail] > CR) || (buffer[tail] > LF) || (buffer[tail] > Endfile)) {
 				dataCount++; 
-				cout << "Mengkonsumsi byte ke-" << dataCount <<	": " << "'" << buffer[tail] << "'";			
+				cout << "Mengkonsumsi byte ke-" << dataCount <<	": " << "'" << buffer[tail] << "'" << endl;			
 			}
 
 			if ((abs(head-tail)) <= LOWERLIMIT) {

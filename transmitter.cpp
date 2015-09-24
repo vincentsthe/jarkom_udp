@@ -82,18 +82,17 @@ void listenToReceiver() {
 void sendData(const char* fileName) {
 	ifstream fileReader;
 	fileReader.open(fileName);
-
+	
 	int i = 1;
 	char input;
 	char buffer[32];
 	buffer[1] = 0;
 	while (fileReader.get(input)) {
-		do {
+		/* do {
 			sleep(1);
-		} while (lastChar != XON);
-
+		} while (lastChar != XON); */
 		buffer[0] = input;
-		cout << "Mengirim byte ke-" << i++ << "..." << endl;
+		cout << "Mengirim byte ke-" << i++ << ":" << "'" << buffer << "'" << endl;
 		sendto(socketConnection, buffer, 1, 0, (struct sockaddr *) &server, sizeof(server));
 	}
 }
