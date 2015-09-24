@@ -5,7 +5,8 @@
 #include <string>
 #include <thread>
 #include <cstdlib>
-#include <pthread.h>
+#include <unistd.h>
+#include "pthread.h"
 
 #include <netdb.h>
 #include <netinet/in.h>
@@ -21,24 +22,31 @@
 
 using namespace std;
 
-char buffer[QSIZE];
-
-Byte *data;
+char buffer[DATASIZE];
 
 char lastChar;
 
-int byteCount = 0;
-int dataCount = 0;
-int head = 0;
-int tail = 0;
+char *localHost = "127.0.0.1";
+
 int socketConnection;
+
+int byteCount = 0,
+dataCount = 0,
+head = 0,
+tail = 0;
 
 char on[1];
 char off[1];
 
-int bindToLocalhost(int port);
-void listenToReceiver();
-void consumeByte();
+bool send_xoff = false,
+send_xon = true;
+
+struct sockaddr_in server;
+
+void receiveDataFromClient(int port);
+void setSocketConnection(int port);
+void listenToTransmitter();
+void consumeData();
 
 int main(int argc, char* argv[]) {
 	on[0] = XON;
@@ -49,23 +57,39 @@ int main(int argc, char* argv[]) {
 	} else {
 		int port;
 		sscanf(argv[1], "%d", &port);
-		socketConnection = bindToLocalhost(port);
-		data = (Byte*) malloc (DATASIZE*sizeof(Byte));
-		write(socketConnection, on, 1);
-		while (true) {		
-			listenToReceiver();
-			sleep(1);
-		}
-		while (true) {
-			thread consume (consumeByte);	
-			sleep(1);	
-		}
+		receiveDataFromClient(port);
 	}
 
 	return 0;
 }
 
+void receiveDataFromClient(int port) {
+	setSocketConnection(port);
 
+	thread listener (listenToTransmitter);
+	consumeData();
+
+	listener.join();
+}
+
+void setSocketConnection(int port) {
+	cout << "Binding pada " << localHost << ":" << port << endl;
+
+	socketConnection = socket(AF_INET, SOCK_DGRAM, 0);
+
+	server.sin_family = AF_INET;
+	server.sin_port = htons(port);
+
+	inet_aton(localHost, &server.sin_addr);
+	
+	if (bind(socketConnection, (const sockaddr *)&server, sizeof(server)) < 0) {
+		cout << "error binding to socket" << endl;
+	} else {
+		cout << "binding success" << endl; // test aja
+	}
+}
+
+/*
 int bindToLocalhost(int port) {
 	struct sockaddr_in server, cli_addr;
 	server.sin_family = AF_INET;
@@ -84,37 +108,49 @@ int bindToLocalhost(int port) {
 
     return socketConnection;
 }
+*/
 
-void listenToReceiver() {
+void listenToTransmitter() {
 	char input[256];
-		
-	read(socketConnection, input, 255);
-	if (head == QSIZE)
-		head = 0;	
-	else
-		head++;
-	byteCount++;
-	buffer[head] = input[0];
-	cout << "Menerima byte ke-" << byteCount;
-	if ((abs(head-tail)) >= QSIZE) {
-		write(socketConnection, off , 1);
-	} 
+	struct sockaddr_storage fromAddr;
+	socklen_t fromAddrLen = sizeof(fromAddr);
+	do {
+			cout << "listening" << endl; // test
+			recvfrom(socketConnection, input, 255, 0, (struct sockaddr *) &fromAddr, &fromAddrLen);
+			
+			
+			if (head == QSIZE)
+				head = 0;	
+			else
+				head++;
+			byteCount++;
+	
+			buffer[head] = input[0];
+	
+			cout << "Menerima byte ke-" << byteCount;
+	
+			if ((abs(head-tail)) >= QSIZE) {
+				sendto(socketConnection, off, 1, 0, (struct sockaddr *) &server, sizeof(server));
+				send_xon = false;
+				send_xoff = true;
+			}
+	} while (true);
 }
 
-void consumeByte() {
-	bool valid = false;
-	
-	if (head != tail) {
-		tail++;
-		do {
+void consumeData() {	
+	do {
+		if (head != tail) {
+			tail++;
 			if ((buffer[tail] > 32) || (buffer[tail] > CR) || (buffer[tail] > LF) || (buffer[tail] > Endfile)) {
-				valid = true;
 				dataCount++; 
 				cout << "Mengkonsumsi byte ke-" << dataCount <<	": " << "'" << buffer[tail] << "'";			
 			}
-		} while (valid);
-	}
 
-	if ((abs(head-tail)) <= LOWERLIMIT)
-		write(socketConnection, on, 1);
+			if ((abs(head-tail)) <= LOWERLIMIT) {
+				sendto(socketConnection, on, 1, 0, (struct sockaddr *) &server, sizeof(server));
+				send_xon = true;
+				send_xoff = false;
+			}
+		}			
+	}  while (true);		
 }

@@ -4,6 +4,9 @@
 #include <cstring>
 #include <string>
 #include <thread>
+#include <cstdlib>
+#include <unistd.h>
+#include "pthread.h"
 
 #include <netdb.h>
 #include <netinet/in.h>
