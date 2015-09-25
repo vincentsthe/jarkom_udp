@@ -71,9 +71,9 @@ void setSocketConnection(const char* destHost, const char* port) {
 	
 	socketConnection = socket(servAddr->ai_family, servAddr->ai_socktype, servAddr->ai_protocol);
 	if (socketConnection < 0) {
-		cout << "Failed connecting to socket" << endl;
+		cout << "Pembuatan socket gagal." << endl;
 	} else {
-		cout << "socket created" << endl;
+		cout << "Socket berhasil dibuat." << endl;
 	}
 }
 
@@ -85,10 +85,11 @@ void listenToReceiver() {
 		recvfrom(socketConnection, buffer, 255, 0, (struct sockaddr *) &fromAddr, &fromAddrLen);
 		if (buffer[0] == XON) {
 			lastChar = buffer[0];
-			cout << "XON diterima..." << endl;
+			cout << "XON diterima." << endl;
 		} else if (buffer[0] == XOFF) {
 			lastChar = buffer[0];
-			cout << "XOFF diterima..." << endl;
+			cout << "XOFF diterima." << endl;
+			cout << "Menunggu XON ..." << endl;
 		}
 		usleep(500000);
 	} while (true);
@@ -107,10 +108,8 @@ void sendData(const char* fileName) {
 			sleep(1);
 		} while (lastChar != XON);
 		buffer[0] = input;
-		cout << "Mengirim byte ke-" << i++ << ":" << "'" << buffer << "'" << endl;
+		cout << "Mengirim byte ke-" << i++ << "." << endl; //":" << "'" << buffer << "'" << endl;
 		ssize_t numB = sendto(socketConnection, buffer, 1, 0, servAddr->ai_addr, servAddr->ai_addrlen);
 		usleep(500000);
 	}
 }
-
-

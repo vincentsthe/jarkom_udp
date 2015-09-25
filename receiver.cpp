@@ -17,8 +17,8 @@
 #include "dcomm.h"
 
 #define QSIZE 24
-#define UPPERLIMIT 16
-#define LOWERLIMIT 8
+#define UPPERLIMIT 8
+#define LOWERLIMIT 4
 #define DATASIZE 256
 
 using namespace std;
@@ -26,8 +26,6 @@ using namespace std;
 char buffer[DATASIZE];
 
 char lastChar;
-
-char *localHost = "127.0.0.1";
 
 int socketConnection;
 
@@ -45,11 +43,15 @@ send_xon = true;
 struct sockaddr_in server;
 
 struct sockaddr_in clntAddr;
+
 socklen_t clntAddrLen = sizeof(clntAddr);
 
 void receiveDataFromClient(const char* port);
+
 void setSocketConnection(const char* port);
+
 void listenToTransmitter();
+
 void consumeData();
 
 int main(int argc, char* argv[]) {
@@ -69,7 +71,6 @@ int main(int argc, char* argv[]) {
 
 void receiveDataFromClient(const char* port) {
 	setSocketConnection(port);
-	//sendto(socketConnection, on, 1, 0, (struct sockaddr *) &server, sizeof(server));			
 			
 	bzero(&clntAddr, sizeof(clntAddr));
 	thread listener (listenToTransmitter);
@@ -81,7 +82,7 @@ void receiveDataFromClient(const char* port) {
 }
 
 void setSocketConnection(const char* port) {
-	cout << "Binding pada " << localHost << ":" << port << endl;
+	cout << "Binding pada " << "127.0.0.1" << ":" << port << " ..." << endl;
 
 	struct addrinfo addrCriteria;
 	memset(&addrCriteria, 0, sizeof(addrCriteria));
@@ -91,23 +92,21 @@ void setSocketConnection(const char* port) {
 	addrCriteria.ai_protocol = IPPROTO_UDP;
 	
 	
-	struct addrinfo *servAddr; // List of server addresses
+	struct addrinfo *servAddr;
 	int rtnVal = getaddrinfo(NULL, port, &addrCriteria, &servAddr);
 	if (rtnVal != 0) {
 		cout << "get address info failed" << endl;
 	}
 	
-	// create socket
 	socketConnection = socket(servAddr->ai_family, servAddr->ai_socktype, servAddr->ai_protocol);
 	if (socketConnection < 0) {
 		cout << "failed create socket" << endl;
 	}
 	
-	// Bind to local address
 	if (bind(socketConnection, servAddr->ai_addr, servAddr->ai_addrlen) < 0) {
-		cout << "error binding" << endl;
+		cout << "Binding gagal." << endl;
 	} else {
-		cout << "binding success" << endl;
+		cout << "Binding berhasil." << endl;
 	}
 
 	freeaddrinfo(servAddr);
@@ -123,11 +122,11 @@ void listenToTransmitter() {
 		buffer[head % QSIZE] = input[0];
 		memset(input, 0, sizeof(input));
 		
-		cout << "Menerima byte ke-" << byteCount << ":" << "'" << buffer[head % QSIZE] << "'" << endl;
+		cout << "Menerima byte ke-" << byteCount << "." << endl; //":" << "'" << buffer[head % QSIZE] << "'" << endl;
 		head++;
 
 		if ((abs(head-tail)) >= UPPERLIMIT) {
-			cout << "sending XOFF signal" << endl;
+			cout << "Buffer > minimum upperlimit. Mengirim XOFF. " << endl;
 			sendto(socketConnection, off, 1, 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr));
 			send_xon = false;
 			send_xoff = true;
@@ -145,13 +144,13 @@ void consumeData() {
 			}
 			tail++;
 
-			if ((abs(head-tail)) <= LOWERLIMIT) {
-				cout << "sending XON signal" << endl;
+			if ((send_xon == false) &&(abs(head-tail)) <= LOWERLIMIT) {
+				cout << "Buffer < maximum lowerlimit. Mengirim XON." << endl;
 				sendto(socketConnection, on, 1, 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr));
 				send_xon = true;
 				send_xoff = false;
 			}
 		}			
-		sleep(1);
+		sleep(3);
 	}  while (true);		
 }
