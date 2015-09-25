@@ -16,8 +16,9 @@
 
 #include "dcomm.h"
 
-#define QSIZE 8
-#define LOWERLIMIT 4
+#define QSIZE 24
+#define UPPERLIMIT 16
+#define LOWERLIMIT 8
 #define DATASIZE 256
 
 using namespace std;
@@ -43,8 +44,11 @@ send_xon = true;
 
 struct sockaddr_in server;
 
-void receiveDataFromClient(int port);
-void setSocketConnection(int port);
+struct sockaddr_in clntAddr;
+socklen_t clntAddrLen = sizeof(clntAddr);
+
+void receiveDataFromClient(const char* port);
+void setSocketConnection(const char* port);
 void listenToTransmitter();
 void consumeData();
 
@@ -57,16 +61,17 @@ int main(int argc, char* argv[]) {
 	} else {
 		int port;
 		sscanf(argv[1], "%d", &port);
-		receiveDataFromClient(port);
+		receiveDataFromClient(argv[1]);
 	}
 
 	return 0;
 }
 
-void receiveDataFromClient(int port) {
+void receiveDataFromClient(const char* port) {
 	setSocketConnection(port);
 	//sendto(socketConnection, on, 1, 0, (struct sockaddr *) &server, sizeof(server));			
 			
+	bzero(&clntAddr, sizeof(clntAddr));
 	thread listener (listenToTransmitter);
 	consumeData();
 
@@ -75,87 +80,78 @@ void receiveDataFromClient(int port) {
 	close(socketConnection);
 }
 
-void setSocketConnection(int port) {
+void setSocketConnection(const char* port) {
 	cout << "Binding pada " << localHost << ":" << port << endl;
 
-	socketConnection = socket(AF_INET, SOCK_DGRAM, 0);
-
-	server.sin_family = AF_INET;
-	server.sin_port = htons(port);
-	server.sin_addr.s_addr = INADDR_ANY;
-
-	// inet_aton(localHost, &server.sin_addr);
+	struct addrinfo addrCriteria;
+	memset(&addrCriteria, 0, sizeof(addrCriteria));
+	addrCriteria.ai_family = AF_UNSPEC;
+	addrCriteria.ai_flags = AI_PASSIVE;
+	addrCriteria.ai_socktype = SOCK_DGRAM;
+	addrCriteria.ai_protocol = IPPROTO_UDP;
 	
-	if (bind(socketConnection, (const sockaddr *)&server, sizeof(server)) < 0) {
-		cout << "error binding to socket" << endl;
+	
+	struct addrinfo *servAddr; // List of server addresses
+	int rtnVal = getaddrinfo(NULL, port, &addrCriteria, &servAddr);
+	if (rtnVal != 0) {
+		cout << "get address info failed" << endl;
+	}
+	
+	// create socket
+	socketConnection = socket(servAddr->ai_family, servAddr->ai_socktype, servAddr->ai_protocol);
+	if (socketConnection < 0) {
+		cout << "failed create socket" << endl;
+	}
+	
+	// Bind to local address
+	if (bind(socketConnection, servAddr->ai_addr, servAddr->ai_addrlen) < 0) {
+		cout << "error binding" << endl;
 	} else {
-		cout << "binding success" << endl; // test aja
-	}
-	
-}
-
-/*
-int bindToLocalhost(int port) {
-	struct sockaddr_in server, cli_addr;
-	server.sin_family = AF_INET;
-	server.sin_port = htons(port);
-	inet_aton("127.0.0.1", &server.sin_addr);
-
-	cout << "Binding pada " << ":" << port << "..." << endl;
-
-	socketConnection = socket(AF_INET, SOCK_DGRAM, 0);
-    	
-	if (bind(socketConnection, (const sockaddr *)&server, sizeof(server)) < 0) {
-		cout << "error connecting to socket" << endl;
+		cout << "binding success" << endl;
 	}
 
-	listen(socketConnection, 1000);
-
-    return socketConnection;
+	freeaddrinfo(servAddr);
 }
-*/
 
 void listenToTransmitter() {
 	char input[256];
-	struct sockaddr_storage fromAddr;
-	socklen_t fromAddrLen = sizeof(fromAddr);
 	
 	do {
-			recvfrom(socketConnection, input, 1, 0, (struct sockaddr *) &fromAddr, &fromAddrLen);
-			
-			if (head == QSIZE)
-				head = 0;	
-			else
-				head++;
-			
-			byteCount++;
-			buffer[head] = input[0];
-			memset(input, 0, sizeof(input));
-			
-			cout << "Menerima byte ke-" << byteCount << ":" << "'" << buffer[head] << "'" << endl;			
-	
-			if ((abs(head-tail)) >= QSIZE) {
-				sendto(socketConnection, off, 1, 0, (struct sockaddr *) &server, sizeof(server));
-				send_xon = false;
-				send_xoff = true;
-			}
+		recvfrom(socketConnection, input, 1, 0, (struct sockaddr *) &clntAddr, &clntAddrLen);
+		
+		byteCount++;
+		buffer[head % QSIZE] = input[0];
+		memset(input, 0, sizeof(input));
+		
+		cout << "Menerima byte ke-" << byteCount << ":" << "'" << buffer[head % QSIZE] << "'" << endl;
+		head++;
+
+		if ((abs(head-tail)) >= UPPERLIMIT) {
+			cout << "sending XOFF signal" << endl;
+			sendto(socketConnection, off, 1, 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr));
+			send_xon = false;
+			send_xoff = true;
+			usleep(500000);
+		}
 	} while (true);
 }
 
 void consumeData() {	
 	do {
 		if (head != tail) {
-			tail++;
-			if ((buffer[tail] > 32) || (buffer[tail] > CR) || (buffer[tail] > LF) || (buffer[tail] > Endfile)) {
+			if ((buffer[tail % QSIZE] > 32) || (buffer[tail % QSIZE] > CR) || (buffer[tail % QSIZE] > LF) || (buffer[tail % QSIZE] > Endfile)) {
 				dataCount++; 
-				cout << "Mengkonsumsi byte ke-" << dataCount <<	": " << "'" << buffer[tail] << "'" << endl;			
+				cout << "Mengkonsumsi byte ke-" << dataCount <<	": " << "'" << buffer[tail % QSIZE] << "'" << endl;
 			}
+			tail++;
 
 			if ((abs(head-tail)) <= LOWERLIMIT) {
-				sendto(socketConnection, on, 1, 0, (struct sockaddr *) &server, sizeof(server));
+				cout << "sending XON signal" << endl;
+				sendto(socketConnection, on, 1, 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr));
 				send_xon = true;
 				send_xoff = false;
 			}
 		}			
+		sleep(1);
 	}  while (true);		
 }

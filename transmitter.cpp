@@ -18,15 +18,17 @@
 
 using namespace std;
 
-char lastChar;
+char lastChar = XON;
 
 int socketConnection;
 
 struct sockaddr_in server;
 
-void transmitDataFromFile(const char* destHost, int port, const char* fileName);
+struct addrinfo *servAddr;
 
-void setSocketConnection(const char* destHost, int port);
+void transmitDataFromFile(const char* destHost, const char* port, const char* fileName);
+
+void setSocketConnection(const char* destHost, const char* port);
 
 void listenToReceiver();
 
@@ -38,13 +40,13 @@ int main(int argc, char* argv[]) {
 	} else {
 		int port;
 		sscanf(argv[2], "%d", &port);
-		transmitDataFromFile(argv[1], port, argv[3]);
+		transmitDataFromFile(argv[1], argv[2], argv[3]);
 	}
 
 	return 0;
 }
 
-void transmitDataFromFile(const char* destHost, int port, const char* fileName) {
+void transmitDataFromFile(const char* destHost, const char* port, const char* fileName) {
 	setSocketConnection(destHost, port);
 
 	thread listener (listenToReceiver);
@@ -53,15 +55,26 @@ void transmitDataFromFile(const char* destHost, int port, const char* fileName) 
 	listener.join();
 }
 
-void setSocketConnection(const char* destHost, int port) {
+void setSocketConnection(const char* destHost, const char* port) {
 	cout << "Membuat socket untuk koneksi ke " << destHost << ":" << port << endl;
 
-	socketConnection = socket(AF_INET, SOCK_DGRAM, 0);
+	struct addrinfo addrCriteria;
+	memset(&addrCriteria, 0, sizeof(addrCriteria));
+	addrCriteria.ai_family = AF_UNSPEC;
 
-	server.sin_family = AF_INET;
-	server.sin_port = htons(port);
-
-	inet_aton(destHost, &server.sin_addr);
+	addrCriteria.ai_socktype = SOCK_DGRAM;
+	addrCriteria.ai_protocol = IPPROTO_UDP;
+	int rtnVal = getaddrinfo(destHost, port, &addrCriteria, &servAddr);
+	if (rtnVal != 0) {
+		cout << "Get address info failed" << endl;
+	}
+	
+	socketConnection = socket(servAddr->ai_family, servAddr->ai_socktype, servAddr->ai_protocol);
+	if (socketConnection < 0) {
+		cout << "Failed connecting to socket" << endl;
+	} else {
+		cout << "socket created" << endl;
+	}
 }
 
 void listenToReceiver() {
@@ -70,12 +83,14 @@ void listenToReceiver() {
 	socklen_t fromAddrLen = sizeof(fromAddr);
 	do {
 		recvfrom(socketConnection, buffer, 255, 0, (struct sockaddr *) &fromAddr, &fromAddrLen);
-		lastChar = buffer[0];
-		if (lastChar == XON) {
+		if (buffer[0] == XON) {
+			lastChar = buffer[0];
 			cout << "XON diterima..." << endl;
-		} else {
+		} else if (buffer[0] == XOFF) {
+			lastChar = buffer[0];
 			cout << "XOFF diterima..." << endl;
 		}
+		usleep(500000);
 	} while (true);
 }
 
@@ -88,12 +103,13 @@ void sendData(const char* fileName) {
 	char buffer[32];
 	buffer[1] = 0;
 	while (fileReader.get(input)) {
-		/* do {
+		do {
 			sleep(1);
-		} while (lastChar != XON); */
+		} while (lastChar != XON);
 		buffer[0] = input;
 		cout << "Mengirim byte ke-" << i++ << ":" << "'" << buffer << "'" << endl;
-		sendto(socketConnection, buffer, 1, 0, (struct sockaddr *) &server, sizeof(server));
+		ssize_t numB = sendto(socketConnection, buffer, 1, 0, servAddr->ai_addr, servAddr->ai_addrlen);
+		usleep(500000);
 	}
 }
 
